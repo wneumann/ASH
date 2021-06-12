@@ -19,8 +19,8 @@ final class CmdTests: XCTestCase {
       fm.createFile(atPath: tempDir.appendingPathComponent("dir1/subdir1/file3").path, contents: files[2], attributes: nil)
       fm.createFile(atPath: tempDir.appendingPathComponent("dir1/subdir2/file4").path, contents: files[3], attributes: nil)
       fm.createFile(atPath: tempDir.appendingPathComponent("dir1/subdir2/file5").path, contents: files[4], attributes: nil)
-      print("basedir: \(tempDir.appendingPathComponent("dir1").path)")
-      print("created: \(try! fm.contentsOfDirectory(atPath: tempDir.appendingPathComponent("dir1").path))")
+//      print("basedir: \(tempDir.appendingPathComponent("dir1").path)")
+//      print("created: \(try! fm.contentsOfDirectory(atPath: tempDir.appendingPathComponent("dir1").path))")
     } catch {
       fatalError("Setup got funky.")
     }
@@ -174,6 +174,24 @@ final class CmdTests: XCTestCase {
     }
   }
 
+  func testRmMultiple() throws {
+    let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
+    let targetFiles: [String] = (1...5).map { i in
+      let targetFile = tempDir.appendingPathComponent("junkFile\(i)")
+      fm.createFile(atPath: targetFile.path, contents: "just some junk #\(i)".data(using: .utf8), attributes: nil)
+      XCTAssert(fm.fileExists(atPath: targetFile.path))
+      return targetFile.path
+    }
+    fm.changeCurrentDirectoryPath(tempDir.path)
+    
+    switch ash.command(command: "rm; \(targetFiles.joined(separator: "; "))") {
+    case .success:
+      for target in targetFiles { XCTAssertFalse(fm.fileExists(atPath: target)) }
+    case .failure(let error):
+      XCTAssert(false, error.localizedDescription)
+    }
+  }
+
   func testRMNonexistant() {
     let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
     let targetFile = tempDir.appendingPathComponent("junkFile")
@@ -187,7 +205,7 @@ final class CmdTests: XCTestCase {
 
   func testRMNoPermissions() {
     // This one needs to be thought about -- I may need to add a delegate to a filemanager so
-    // it can't delete the 400 file
+    // it can't delete a 0o400 file
     
 //    let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
 //    let targetFile = tempDir.appendingPathComponent("junkFile")
@@ -281,6 +299,17 @@ final class CmdTests: XCTestCase {
     }
   }
   
+  func testCatMultiple() {
+    let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
+    fm.changeCurrentDirectoryPath(tempDir.path)
+
+    switch ash.command(command: "cat; file1; file2; subdir1/file3") {
+    case .success(.string(let contents)): XCTAssert(contents == "I am file 1!\nI am file 2!\nI am file 3!")
+    case .success(let what): XCTAssert(false, "TF? \(what)")
+    case .failure(let error): XCTAssert(false, "\(error)")
+    }
+  }
+  
   func testCatNonexistent() {
     let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
     fm.changeCurrentDirectoryPath(tempDir.path)
@@ -342,29 +371,199 @@ final class CmdTests: XCTestCase {
     }
   }
 
-//  strings, cp, screenshot, osascript, exfil, execute, man, shell
-}
+  func testCp() throws {
+    let command = try XCTUnwrap(Command("cp; testFile; testFile2"))
+    XCTAssertEqual(command.command, .cp)
+    XCTAssertEqual(command.arguments, ["testFile", "testFile2"])
 
-final class ASHTests: XCTestCase {
-  let fm = FileManager.default
-  
-  func testExample() {
-    // This is an example of a functional test case.
-    // Use XCTAssert and related functions to verify your tests produce the correct
-    // results.
-    //        XCTAssertEqual(ASH.commandFunc(command: "ls;"))
+    let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
+    fm.changeCurrentDirectoryPath(tempDir.path)
+
+    let file1Path = tempDir.appendingPathComponent("file1").path
+    let file6Path = tempDir.appendingPathComponent("file6").path
+    switch ash.command(command: "cp; file1; file6") {
+    case .success(_):
+      XCTAssert(fm.fileExists(atPath: file1Path), "file1 should exist at \(tempDir.path)")
+      XCTAssert(fm.fileExists(atPath: file6Path), "file6 should exist at \(tempDir.path)")
+      XCTAssert(try String(contentsOfFile: file6Path, encoding: .utf8) == "I am file 1!", "file6 contents incorrect")
+      try! fm.removeItem(atPath: file6Path)
+    case .failure(let error): XCTAssert(false, error.localizedDescription)
+    }
+  }
+
+  func testCpMultiple() throws {
+    let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
+    let subDir = tempDir.appendingPathComponent("subdir1", isDirectory: true)
+    fm.changeCurrentDirectoryPath(tempDir.path)
+
+    let file1Path = subDir.appendingPathComponent("file1").path
+    let file2Path = subDir.appendingPathComponent("file2").path
+    switch ash.command(command: "cp; file1; file2; subdir1") {
+    case .success(_):
+      XCTAssert(fm.fileExists(atPath: tempDir.appendingPathComponent("file1").path), "file1 should exist at \(tempDir.path)")
+      XCTAssert(fm.fileExists(atPath: file1Path), "file1 should exist at \(subDir.path)")
+      XCTAssert(fm.fileExists(atPath: tempDir.appendingPathComponent("file2").path), "file2 should exist at \(tempDir.path)")
+      XCTAssert(fm.fileExists(atPath: file2Path), "file2 should exist at \(subDir.path)")
+      XCTAssert(try String(contentsOfFile: file1Path, encoding: .utf8) == "I am file 1!", "file1 contents incorrect")
+      XCTAssert(try String(contentsOfFile: file2Path, encoding: .utf8) == "I am file 2!", "file2 contents incorrect")
+      try! fm.removeItem(atPath: file1Path)
+      try! fm.removeItem(atPath: file2Path)
+    case .failure(let error): XCTAssert(false, error.localizedDescription)
+    }
   }
   
-//  func testDirectoryPathEmpty() {
-//    XCTAssertEqual(ASH.directoryPath(command: "cd; "), "", "Empty command args should return empty directory path -- \(fm.currentDirectoryPath).")
+  func testMan() throws {
+    let command = try XCTUnwrap(Command("man; should be; ignored"))
+    XCTAssertEqual(command.command, .man)
+    
+    let expectedResult = """
+                The following are commands ran as API calls:
+                mkdir; --- Make a directory in your current directory.
+                whoami; --- Print the current user.
+                cdr; --- Go to a single folder from your current directory.
+                cd; --- Change directories.
+                ls; --- List the directory.
+                ps; --- Will list all processes not limited to user processes.
+                strings; --- This will print the contents of a file.
+                mv; --- Perform a mv command to move files/folders.
+                cp; --- Copy a file/folder.
+                screenshot; <Destination> --- Take a snapshot of all screens. This will notify the user.
+                osascript; <Code> --- This will run an Apple script.
+                exfil; <binary> --- Will grab the raw data of a file. Must be in the same directory of the file.
+                execute; <App to Run> --- This will execute a payload as an API call (no shell needed). Must be in the directory of the binary to execute.
+                """
+    
+    switch ash.command(command: "man;") {
+    case .success(.string(let manPage)):
+      XCTAssertEqual(manPage, expectedResult)
+    case .success, .failure: XCTFail()
+    }
+  }
+
+  func testExfil() throws {
+    let command = try XCTUnwrap(Command("exfil; file2"))
+    XCTAssertEqual(command.command, .exfil)
+    XCTAssertEqual(command.arguments, ["file2"])
+    
+    let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
+    fm.changeCurrentDirectoryPath(tempDir.path)
+    switch ash.command(command: "exfil; file2") {
+    case let .success(.data(data)):
+          XCTAssertEqual(
+            data,
+            "I am file 2!".data(using: .utf8),
+            "File contents incorrect: \(String(data: data, encoding: .utf8) ?? "LOL, wut?")"
+          )
+    case .success:
+      XCTFail("Iunno…? LOL!")
+    case .failure(let error):
+      XCTFail("\(error)")
+    }
+  }
+   
+  func testShell() throws {
+    let command = try XCTUnwrap(Command("shell; ls; -la"))
+    XCTAssertEqual(command.command, .shell)
+    XCTAssertEqual(command.arguments, ["ls", "-la"])
+    
+    // Note: this command does not work -- 'say' executes but the process does not terminate for unknown reasons
+    // need to figure this out
+//    switch ash.command(command: "shell; /usr/bin/say \"hello world\"") {
+    if case let .failure(error) = ash.command(command: "shell; ls; -la") {
+      XCTFail("\(error)")
+    }
+  }
+
+  #if os(macOS)
+    func testExecute() throws {
+      let command = try XCTUnwrap(Command("execute; /System/Applications/Calculator.app"))
+      XCTAssertEqual(command.command, .execute)
+      XCTAssertEqual(command.arguments, ["/System/Applications/Calculator.app"])
+      
+      // Calculator should pop up
+      if case let .failure(error) = ash.command(command: "execute; /System/Applications/Calculator.app") {
+        XCTFail(error.localizedDescription)
+      }
+    }
+    
+    func testExecuteNonexistent() {
+      switch ash.command(command: "execute; /System/Applications/ThisAppDoesNoteExist.app") {
+      case .success(.string(let cmdMessage)):
+        XCTFail(cmdMessage)
+      case .success: XCTFail("Iunno…? LOL!")
+      case .failure(let error):
+        XCTAssertEqual(error.localizedDescription, "The application “ThisAppDoesNoteExist.app” could not be launched because it was not found.")
+      }
+    }
+    
+  func testScreenshot() throws {
+    let command = try XCTUnwrap(Command("screenshot;"))
+    XCTAssertEqual(command.command, .screenshot)
+
+    switch ash.command(command: "screenshot;") {
+    case let .success(.screenshots(timestamp: _, screenshots: shotData)):
+      guard let shot = shotData.first else { XCTFail("Screenshot array empty"); return  }
+      let pngHeader = Data([0x89, 0x50, 0x4E, 0x47])
+      XCTAssertEqual(shot.prefix(4), pngHeader)
+//      let tmpFile = fm.temporaryDirectory.appendingPathComponent("shot.png")
+//      try shot.write(to: tmpFile)
+//      print("Wrote to \(tmpFile.path)")
+    case .success:
+      XCTFail("Iunno…? LOL!")
+    case .failure(let error):
+      XCTFail("\(error)")
+    }
+  }
+  
+  func testOSAScript() throws {
+    let command = try XCTUnwrap(Command("osascript; tell application \"Calculator\" activate end tell"))
+    XCTAssertEqual(command.command, .osascript)
+    XCTAssertEqual(command.arguments, ["tell application \"Calculator\" activate end tell"])
+    
+    // Should pop calc
+    switch ash.command(command: "osascript; tell application \"Calculator\"\n activate\nend tell") {
+    case .success(.string(_)):
+          XCTAssert(true)
+    case .success:
+      XCTFail("Iunno…? LOL!")
+    case .failure(let error):
+      XCTFail("\(error)")
+    }
+  }
+  
+  func testOSAScriptInteractive() throws {
+    switch ash.command(command: "osascript; display dialog \"I am 1337!!1!\"") {
+    case .success(.string(let message)):
+          XCTFail("Unexpected success: \(message)")
+    case .success:
+      XCTFail("Iunno…? LOL!")
+    case .failure(let error):
+      XCTAssert("\(error)".contains("No user interaction allowed."))
+    }
+  }
+  #endif
+}
+
+//final class ASHTests: XCTestCase {
+//  let fm = FileManager.default
+//
+//  func testExample() {
+//    // This is an example of a functional test case.
+//    // Use XCTAssert and related functions to verify your tests produce the correct
+//    // results.
+//    //        XCTAssertEqual(ASH.commandFunc(command: "ls;"))
 //  }
 //
-//  func testDirectoryPath() {
-//    print(fm.currentDirectoryPath)
-//    XCTAssertEqual(ASH.directoryPath(command: "cd; bubble"), "\(fm.currentDirectoryPath)/bubble")
-//  }
-  
-  static var allTests = [
-    ("testExample", testExample),
-  ]
-}
+////  func testDirectoryPathEmpty() {
+////    XCTAssertEqual(ASH.directoryPath(command: "cd; "), "", "Empty command args should return empty directory path -- \(fm.currentDirectoryPath).")
+////  }
+////
+////  func testDirectoryPath() {
+////    print(fm.currentDirectoryPath)
+////    XCTAssertEqual(ASH.directoryPath(command: "cd; bubble"), "\(fm.currentDirectoryPath)/bubble")
+////  }
+//
+//  static var allTests = [
+//    ("testExample", testExample),
+//  ]
+//}
