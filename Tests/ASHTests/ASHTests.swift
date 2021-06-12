@@ -1,7 +1,7 @@
 import XCTest
 @testable import ASH
 
-final class CmdTests: XCTestCase {
+final class AshTests: XCTestCase {
   let fm = FileManager.default
   let ash = ASH.shared
   
@@ -157,7 +157,7 @@ final class CmdTests: XCTestCase {
     }
   }
   
-  func testRM() throws {
+  func testRm() throws {
     let command = try XCTUnwrap(Command("rm; junkFile"))
     XCTAssertEqual(command.command, .rm)
     XCTAssertEqual(command.filePath, "junkFile")
@@ -192,7 +192,7 @@ final class CmdTests: XCTestCase {
     }
   }
 
-  func testRMNonexistant() {
+  func testRmNonexistant() {
     let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
     let targetFile = tempDir.appendingPathComponent("junkFile")
     XCTAssertFalse(fm.fileExists(atPath: targetFile.path))
@@ -203,32 +203,12 @@ final class CmdTests: XCTestCase {
     }
   }
 
-  func testRMNoPermissions() {
-    // This one needs to be thought about -- I may need to add a delegate to a filemanager so
-    // it can't delete a 0o400 file
-    
-//    let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
-//    let targetFile = tempDir.appendingPathComponent("junkFile")
-//    print("----- \(targetFile.path)")
-//    XCTAssertFalse(fm.fileExists(atPath: targetFile.path))
-//    fm.changeCurrentDirectoryPath(tempDir.path)
-//    fm.createFile(atPath: targetFile.path, contents: "You can't delete me".data(using: .utf8), attributes: [.posixPermissions: 0o400])
-//
-//    print("junkFile is ", fm.isDeletableFile(atPath: targetFile.path) ? "not deletable" : "easily deletable")
-//
-//    let preContents = try! fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: [.isWritableKey])
-//    print("preContents:")
-//    for item in preContents { print("\t", item.path) }
-//
-//    if case .success = ash.command(command: "rm; junkFile") {
-////      XCTAssert(false)
-//    }
-//    let postContents = try! fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: [.isWritableKey])
-//    print("\npostContents:")
-//    for item in postContents { print("\t", item.path) }
-  }
+//  func testRMNoPermissions() {
+//    // This one needs to be thought about -- I may need to add a delegate to a filemanager so
+//    // it can't delete a 0o400 file
+//  }
 
-  func testRMDir() throws {
+  func testRmDir() throws {
     let command = try XCTUnwrap(Command("rmdir; junkDir"))
     XCTAssertEqual(command.command, .rmdir)
     XCTAssertEqual(command.filePath, "junkDir")
@@ -247,7 +227,7 @@ final class CmdTests: XCTestCase {
     }
   }
 
-  func testRMDirNonexistant() {
+  func testRmDirNonexistant() {
     let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
     let targetDir = tempDir.appendingPathComponent("junkDir", isDirectory: true)
     XCTAssertFalse(fm.fileExists(atPath: targetDir.path))
@@ -258,7 +238,7 @@ final class CmdTests: XCTestCase {
     }
   }
 
-  func testRMDirOnFile() {
+  func testRmDirOnFile() {
     let tempDir = fm.temporaryDirectory.appendingPathComponent("dir1", isDirectory: true)
     let targetDir = tempDir.appendingPathComponent("junkDir", isDirectory: true)
     let targetFile = targetDir.appendingPathComponent("junkFile", isDirectory: true)
@@ -417,21 +397,21 @@ final class CmdTests: XCTestCase {
     XCTAssertEqual(command.command, .man)
     
     let expectedResult = """
-                The following are commands ran as API calls:
-                mkdir; --- Make a directory in your current directory.
-                whoami; --- Print the current user.
-                cdr; --- Go to a single folder from your current directory.
-                cd; --- Change directories.
-                ls; --- List the directory.
-                ps; --- Will list all processes not limited to user processes.
-                strings; --- This will print the contents of a file.
-                mv; --- Perform a mv command to move files/folders.
-                cp; --- Copy a file/folder.
-                screenshot; <Destination> --- Take a snapshot of all screens. This will notify the user.
-                osascript; <Code> --- This will run an Apple script.
-                exfil; <binary> --- Will grab the raw data of a file. Must be in the same directory of the file.
-                execute; <App to Run> --- This will execute a payload as an API call (no shell needed). Must be in the directory of the binary to execute.
-                """
+                    The following are commands ran as API calls:
+                    mkdir; --- Make a directory.
+                    whoami; --- Print the current user.
+                    cd; --- Change directories.
+                    ls; --- List the directory.
+                    ps; --- Will list all processes not limited to user processes.
+                    cat; --- This will print the contents of a file.
+                    mv; --- Perform a mv command to move files/folders.
+                    cp; --- Copy a file/folder.
+                    screenshot; <Destination> --- Take a snapshot of all screens. This will notify the user.
+                    osascript; <Code> --- This will run an Apple script.
+                    exfil; <binary> --- Will grab the raw data of a file.
+                    execute; <App to Run> --- This will execute an application (no shell needed).
+                    shell; <shell command> --- Runs a command in zsh. Equivalent of `zsh -c 'shell command'`
+                    """
     
     switch ash.command(command: "man;") {
     case .success(.string(let manPage)):
@@ -542,28 +522,76 @@ final class CmdTests: XCTestCase {
     }
   }
   #endif
-}
 
-//final class ASHTests: XCTestCase {
-//  let fm = FileManager.default
-//
-//  func testExample() {
-//    // This is an example of a functional test case.
-//    // Use XCTAssert and related functions to verify your tests produce the correct
-//    // results.
-//    //        XCTAssertEqual(ASH.commandFunc(command: "ls;"))
-//  }
-//
-////  func testDirectoryPathEmpty() {
-////    XCTAssertEqual(ASH.directoryPath(command: "cd; "), "", "Empty command args should return empty directory path -- \(fm.currentDirectoryPath).")
-////  }
-////
-////  func testDirectoryPath() {
-////    print(fm.currentDirectoryPath)
-////    XCTAssertEqual(ASH.directoryPath(command: "cd; bubble"), "\(fm.currentDirectoryPath)/bubble")
-////  }
-//
-//  static var allTests = [
-//    ("testExample", testExample),
-//  ]
-//}
+  #if os(macOS)
+    static var allTests = [
+      ("testLs", testLs),
+      ("testLsEmpty", testLsEmpty),
+      ("testCd", testCd),
+      ("testCdRelative", testCdRelative),
+      ("testCdFailure", testCdFailure),
+      ("testCdParent", testCdParent),
+      ("testMkdir", testMkdir),
+      ("testMkdirFailure", testMkdirFailure),
+      ("testWhoami", testWhoami),
+      ("testRm", testRm),
+      ("testRmMultiple", testRmMultiple),
+      ("testRmNonexistant", testRmNonexistant),
+      ("testRmDir", testRmDir),
+      ("testRmDirNonexistant", testRmDirNonexistant),
+      ("testRmDirOnFile", testRmDirOnFile),
+      ("testPs", testPs),
+      ("testCat", testCat),
+      ("testCatMultiple", testCatMultiple),
+      ("testCatNonexistent", testCatNonexistent),
+      ("testCatNoPermissions", testCatNoPermissions),
+      ("testMv", testMv),
+      ("testMvMultiple", testMvMultiple),
+      ("testCp", testCp),
+      ("testCpMultiple", testCpMultiple),
+      ("testMan", testMan),
+      ("testExfil", testExfil),
+      ("testShell", testShell),
+      ("testExecute", testExecute),
+      ("testExecuteNonexistent", testExecuteNonexistent),
+      ("testScreenshot", testScreenshot),
+      ("testOSAScript", testOSAScript),
+      ("testOSAScriptInteractive", testOSAScriptInteractive),
+    ]
+#else
+    static var allTests = [
+      ("testLs", testLs),
+      ("testLsEmpty", testLsEmpty),
+      ("testCd", testCd),
+      ("testCdRelative", testCdRelative),
+      ("testCdFailure", testCdFailure),
+      ("testCdParent", testCdParent),
+      ("testMkdir", testMkdir),
+      ("testMkdirFailure", testMkdirFailure),
+      ("testWhoami", testWhoami),
+      ("testRm", testRm),
+      ("testRmMultiple", testRmMultiple),
+      ("testRmNonexistant", testRmNonexistant),
+      ("testRmDir", testRmDir),
+      ("testRmDirNonexistant", testRmDirNonexistant),
+      ("testRmDirOnFile", testRmDirOnFile),
+      ("testPs", testPs),
+      ("testCat", testCat),
+      ("testCatMultiple", testCatMultiple),
+      ("testCatNonexistent", testCatNonexistent),
+      ("testCatNoPermissions", testCatNoPermissions),
+      ("testMv", testMv),
+      ("testMvMultiple", testMvMultiple),
+      ("testCp", testCp),
+      ("testCpMultiple", testCpMultiple),
+      ("testMan", testMan),
+      ("testExfil", testExfil),
+      ("testShell", testShell),
+      ("testExecute", testExecute),
+      ("testExecuteNonexistent", testExecuteNonexistent),
+      ("testScreenshot", testScreenshot),
+      ("testOSAScript", testOSAScript),
+      ("testOSAScriptInteractive", testOSAScriptInteractive),
+    ]
+#endif
+}

